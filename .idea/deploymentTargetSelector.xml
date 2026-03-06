@@ -11,6 +11,9 @@
       <SelectionState runConfigName="GetActiveAndCompletedStateTest">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
+      <SelectionState runConfigName="addNewTask_setNewTaskEvent()">
+        <option name="selectionMode" value="DROPDOWN" />
+      </SelectionState>
     </selectionStates>
   </component>
 </project>
