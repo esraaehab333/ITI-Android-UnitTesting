@@ -5,12 +5,13 @@ import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.android.architecture.blueprints.todoapp.getOrAwaitValue
+import org.hamcrest.CoreMatchers.`is`
+import org.hamcrest.CoreMatchers.not
 import org.hamcrest.CoreMatchers.nullValue
 import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mockito.AdditionalMatchers.not
 
 @RunWith(AndroidJUnit4::class) // to understand the application
 class TaskViewModelTest {
@@ -42,5 +43,41 @@ class TaskViewModelTest {
         // use the live data test util
         val value = viewModel.newTaskEvent.getOrAwaitValue()
         assertThat(value.getContentIfNotHandled() , not(nullValue()))
+    }
+    @Test
+    fun setFiltering_allTasks_setsCorrectValues() {
+
+        // Given
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val viewModel = TasksViewModel(application)
+        // When
+        viewModel.setFiltering(TasksFilterType.ALL_TASKS)
+        // Then
+        val value = viewModel.tasksAddViewVisible.getOrAwaitValue()
+        assertThat(value, `is`(true))
+    }
+    @Test
+    fun setFiltering_activeTasks_setsCorrectValues() {
+
+        // Given
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val viewModel = TasksViewModel(application)
+        // When
+        viewModel.setFiltering(TasksFilterType.ACTIVE_TASKS)
+        // Then
+        val value = viewModel.tasksAddViewVisible.getOrAwaitValue()
+        assertThat(value, `is`(false))
+    }
+    @Test
+    fun setFiltering_completedTasks_setsCorrectValues() {
+
+        // Given
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val viewModel = TasksViewModel(application)
+        // When
+        viewModel.setFiltering(TasksFilterType.COMPLETED_TASKS)
+        // Then
+        val value = viewModel.tasksAddViewVisible.getOrAwaitValue()
+        assertThat(value, `is`(false))
     }
 }

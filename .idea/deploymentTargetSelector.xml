@@ -5,12 +5,6 @@
       <SelectionState runConfigName="app">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="getActiveAndCompletedStats_noCompletedTask_returnZeroCompleted()">
-        <option name="selectionMode" value="DROPDOWN" />
-      </SelectionState>
-      <SelectionState runConfigName="GetActiveAndCompletedStateTest">
-        <option name="selectionMode" value="DROPDOWN" />
-      </SelectionState>
       <SelectionState runConfigName="addNewTask_setNewTaskEvent()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
