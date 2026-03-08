@@ -15,14 +15,13 @@
  */
 
 package com.example.android.architecture.blueprints.todoapp.statistics
-
+import com.example.android.architecture.blueprints.todoapp.data.source.DefaultTasksRepository
 import android.app.Application
 import androidx.lifecycle.*
 import com.example.android.architecture.blueprints.todoapp.data.Result
 import com.example.android.architecture.blueprints.todoapp.data.Result.Error
 import com.example.android.architecture.blueprints.todoapp.data.Result.Success
 import com.example.android.architecture.blueprints.todoapp.data.Task
-import com.example.android.architecture.blueprints.todoapp.data.source.DefaultTasksRepository
 import kotlinx.coroutines.launch
 
 /**

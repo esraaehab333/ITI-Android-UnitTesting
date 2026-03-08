@@ -28,9 +28,14 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
+import androidx.room.Room
 import com.example.android.architecture.blueprints.todoapp.EventObserver
 import com.example.android.architecture.blueprints.todoapp.R
 import com.example.android.architecture.blueprints.todoapp.data.Task
+import com.example.android.architecture.blueprints.todoapp.data.source.DefaultTasksRepository
+import com.example.android.architecture.blueprints.todoapp.data.source.local.TasksLocalDataSource
+import com.example.android.architecture.blueprints.todoapp.data.source.local.ToDoDatabase
+import com.example.android.architecture.blueprints.todoapp.data.source.remote.TasksRemoteDataSource
 import com.example.android.architecture.blueprints.todoapp.databinding.TasksFragBinding
 import com.example.android.architecture.blueprints.todoapp.util.setupRefreshLayout
 import com.example.android.architecture.blueprints.todoapp.util.setupSnackbar
@@ -43,7 +48,21 @@ import timber.log.Timber
  */
 class TasksFragment : Fragment() {
 
-    private val viewModel by viewModels<TasksViewModel>()
+    private val viewModel by viewModels<TasksViewModel>(factoryProducer = {
+        val database = Room.databaseBuilder(
+            context = requireActivity().application,
+            klass = ToDoDatabase::class.java,
+            name = "Tasks.db"
+        ).build()
+        val tasksDao = database.taskDao()
+        val localDataSource = TasksLocalDataSource(tasksDao)
+        val remoteDataSource = TasksRemoteDataSource
+        val repository = DefaultTasksRepository(
+            tasksRemoteDataSource = remoteDataSource,
+            tasksLocalDataSource = localDataSource
+        )
+        TasksViewModelFactory(repository)
+    })
 
     private val args: TasksFragmentArgs by navArgs()
 
