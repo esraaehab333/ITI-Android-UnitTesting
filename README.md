@@ -16,27 +16,37 @@
 7. [Testing Pyramid & Scopes](#testing-pyramid--scopes)
 8. [JUnit4 Basics](#junit4-basics)
 
-### Part II: Unit Testing in Practice
+### Part II: Unit Testing in Practice (Day 1)
 9. [Day 1: Writing Your First Tests](#day-1-writing-your-first-tests)
 10. [Testing Pure Functions (Statistics Example)](#testing-pure-functions-statistics-example)
 11. [Test Structure: Given-When-Then](#test-structure-given-when-then)
 12. [Assertions: assertEquals vs. assertThat](#assertions-assertequals-vs-assertthat)
 13. [Testing LiveData in ViewModels](#testing-livedata-in-viewmodels)
 
-### Part III: Advanced Testing & Test Doubles
+### Part III: Advanced Testing & Test Doubles (Day 2)
 14. [Day 2: Testing Repositories](#day-2-testing-repositories)
 15. [The Problem: Testing Repositories](#the-problem-testing-repositories)
 16. [Test Doubles Explained](#test-doubles-explained)
 17. [Fake Implementation](#fake-implementation)
 18. [Dependency Injection for Testability](#dependency-injection-for-testability)
 19. [Mock Objects with MockK](#mock-objects-with-mockk)
-20. [Testing Coroutines](#testing-coroutines)
+20. [Testing Coroutines: Fundamentals](#testing-coroutines-fundamentals)
 
-### Part IV: Best Practices & Interview Questions
-21. [Interview Questions & Answers](#interview-questions--answers)
-22. [Important Notes & Common Pitfalls](#important-notes--common-pitfalls)
-23. [Testing Checklist](#testing-checklist)
-24. [Key Concepts to Research](#key-concepts-to-research)
+### Part IV: Day 3 - Advanced Coroutine & Database Testing
+21. [Day 3: Advanced Coroutine Testing with StandardTestDispatcher](#day-3-advanced-coroutine-testing-with-standardtestdispatcher)
+22. [Understanding StandardTestDispatcher](#understanding-standardtestdispatcher)
+23. [Testing ViewModels with Coroutines](#testing-viewmodels-with-coroutines)
+24. [Understanding Execution Order in Coroutines](#understanding-execution-order-in-coroutines)
+25. [Testing Room Database](#testing-room-database)
+26. [Testing DAO (Data Access Object)](#testing-dao-data-access-object)
+27. [Testing LocalDataSource (Integration with DAO)](#testing-localdatasource-integration-with-dao)
+28. [Test Setup with @Before](#test-setup-with-before)
+
+### Part V: Best Practices & Interview Questions
+29. [Interview Questions & Answers](#interview-questions--answers)
+30. [Important Notes & Common Pitfalls](#important-notes--common-pitfalls)
+31. [Testing Checklist](#testing-checklist)
+32. [Key Concepts to Research](#key-concepts-to-research)
 
 ---
 
@@ -467,8 +477,6 @@ fun getActiveAndCompletedStats_both_returnsNumberOfCompletedAndActive() {
 }
 ```
 
----
-
 ### Test: Edge Case - Null Input
 
 ```kotlin
@@ -849,52 +857,547 @@ fun deleteTask_callsRepository() {
 
 ---
 
-## Testing Coroutines
+## Testing Coroutines: Fundamentals
 
-### The Problem
+### The Challenge of Testing Async Code
 
-Repository functions are suspend functions. You can't call them from regular test code.
+Coroutines are fundamentally asynchronous—you don't know when jobs will execute or in what order. This makes testing tricky:
+- Jobs are queued, not immediately executed.
+- Time can pass during execution.
+- Execution order may be unexpected.
+- You need to control time and job execution for deterministic tests.
 
-```kotlin
-suspend fun getTasks(forceUpdate: Boolean = false): Result<List<Task>>
-```
-
-### The Solution: runTest
-
-Use `runTest` from `kotlinx-coroutines-test`:
+### Add Coroutines Test Dependency
 
 ```kotlin
 testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
 ```
 
-### Testing Suspend Functions
+---
 
-```kotlin
-import kotlinx.coroutines.test.runTest
+# PART IV: DAY 3 - ADVANCED COROUTINE & DATABASE TESTING
 
-@Test
-fun getTasks_forceUpdateTrue_returnListFromRemote() = runTest {
-    // Setup
-    val fakeRemote = FakeDataSource(remoteTasks.toMutableList())
-    val fakeLocal = FakeDataSource(localTasks.toMutableList())
-    val repository = DefaultTasksRepository(
-        tasksRemoteDataSource = fakeRemote,
-        tasksLocalDataSource = fakeLocal,
-        ioDispatcher = UnconfinedTestDispatcher()  // Test dispatcher
-    )
-    
-    // When
-    val result = repository.getTasks(forceUpdate = true) as Result.Success
-    
-    // Then
-    assertThat(result.data, IsEqual(remoteTasks))
+## Day 3: Advanced Coroutine Testing with StandardTestDispatcher
+
+**runTest**, **TestScope**, and **StandardTestDispatcher** work together to give you complete control over coroutines:
+
+```
+runTest {
+    ↓
+    Test Scope (coroutine scope for testing)
+    ↓
+    Standard Test Dispatcher (controls coroutine execution)
 }
 ```
 
-**Key points:**
-- `runTest { }` creates a coroutine scope for testing.
-- Use `UnconfinedTestDispatcher()` instead of `Dispatchers.IO`.
-- Suspend functions run synchronously in tests.
+**Key components:**
+
+| Component | Purpose |
+|-----------|---------|
+| **runTest** | Main testing function for suspend functions and coroutine logic |
+| **Test Scope** | Defines a coroutine scope specifically for testing, ensuring proper lifecycle |
+| **StandardTestDispatcher** | Controls coroutine execution; lets you manage time and order |
+| **UnconfinedTestDispatcher** | Runs everything immediately; simpler but less control |
+
+---
+
+## Understanding StandardTestDispatcher
+
+The **StandardTestDispatcher** queues coroutine jobs. You control execution with three powerful methods:
+
+### 1. **advanceTimeBy(timeMillis)** - Fast-forward virtual time
+
+```kotlin
+@Test
+fun delayedTask_completesAfterTime() = runTest {
+    var completed = false
+    
+    launch {
+        delay(2000)  // Wait 2 seconds
+        completed = true
+    }
+    
+    // At this point, job is queued but not executed
+    assertThat(completed, `is`(false))
+    
+    // Fast-forward time by 2000ms
+    advanceTimeBy(2000)
+    
+    // Now job has executed
+    assertThat(completed, `is`(true))
+}
+```
+
+**Job Queue Visualization:**
+
+```
+Initial state:
+Queue: [Job A: delay(2000) → completed = true]
+
+After advanceTimeBy(1000):
+Queue: [Job A: delay(1000 remaining) → ...]
+
+After advanceTimeBy(2000):
+Queue: []  (job A executed)
+```
+
+---
+
+### 2. **runCurrent()** - Execute pending jobs immediately (no time advance)
+
+```kotlin
+@Test
+fun runCurrent_executesPendingJobs() = runTest {
+    var step = 0
+    
+    launch {
+        step = 1
+    }
+    
+    // Job is queued
+    assertThat(step, `is`(0))
+    
+    // Execute pending jobs NOW (no delay)
+    runCurrent()
+    
+    // Job executed
+    assertThat(step, `is`(1))
+}
+```
+
+**Key difference:** `runCurrent()` only executes jobs that are ready. If a job has a delay, it's skipped.
+
+```kotlin
+launch {
+    delay(1000)  // 1 second delay
+    doWork()
+}
+
+runCurrent()  // ❌ Skips (delay blocks execution)
+advanceUntilIdle()  // ✅ Waits for delay, then executes
+```
+
+---
+
+### 3. **advanceUntilIdle()** - Execute all pending jobs (auto-advance time)
+
+```kotlin
+@Test
+fun advanceUntilIdle_executesAllJobs() = runTest {
+    var job1Done = false
+    var job2Done = false
+    
+    launch {
+        job1Done = true  // No delay
+    }
+    
+    launch {
+        delay(1000)  // 1 second delay
+        job2Done = true
+    }
+    
+    // Execute all pending jobs (automatically advances time)
+    advanceUntilIdle()
+    
+    // Both jobs executed
+    assertThat(job1Done, `is`(true))
+    assertThat(job2Done, `is`(true))
+}
+```
+
+---
+
+## Testing ViewModels with Coroutines
+
+### Problem: viewModelScope and Main Dispatcher
+
+ViewModels use `viewModelScope.launch { }`, which runs on `Dispatchers.Main`. In tests, you need to replace this with a test dispatcher.
+
+### Solution: Set the Main Dispatcher
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
+import org.junit.After
+import org.junit.Before
+
+@Before
+fun setup() {
+    // Replace the Main dispatcher with a test dispatcher
+    Dispatchers.setMain(UnconfinedTestDispatcher())
+}
+
+@After
+fun tearDown() {
+    // Restore the original Main dispatcher
+    Dispatchers.resetMain()
+}
+```
+
+### Example: Testing completeTask() with Coroutines
+
+```kotlin
+// In ViewModel
+class TasksViewModel(private val tasksRepository: TaskRepository) : ViewModel() {
+    
+    fun completeTask(task: Task, completed: Boolean) {
+        viewModelScope.launch {
+            if (completed) {
+                tasksRepository.completeTask(task)
+                showSnackbarMessage(R.string.task_marked_complete)
+            } else {
+                tasksRepository.activateTask(task)
+                showSnackbarMessage(R.string.task_marked_active)
+            }
+        }
+    }
+}
+
+// Test
+import io.mockk.mockk
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.just
+import io.mockk.Runs
+import kotlinx.coroutines.test.runTest
+
+@RunWith(AndroidJUnit4::class)
+class TasksViewModelTest {
+    
+    private lateinit var tasksViewModel: TasksViewModel
+    private lateinit var repository: TaskRepository
+    
+    @get:Rule
+    var instantExecutorRule = InstantTaskExecutorRule()
+    
+    @Before
+    fun setup() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        repository = mockk()
+        tasksViewModel = TasksViewModel(tasksRepository = repository)
+    }
+    
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+    
+    @Test
+    fun completeTask_taskIsCompleted_repositoryCalledAndSnackbarShown() = runTest {
+        // Given
+        val task = Task(title = "Title", description = "Description")
+        coEvery { repository.completeTask(task) } just Runs
+        
+        // When
+        tasksViewModel.completeTask(task, completed = true)
+        
+        // Then: completeTask was called
+        coVerify { repository.completeTask(task) }
+        
+        // And: activateTask was NOT called
+        coVerify(exactly = 0) { repository.activateTask(task) }
+        
+        // And: Snackbar message shows completion
+        val message = tasksViewModel.snackbarText.getOrAwaitValue()
+        assertThat(message.getContentIfNotHandled(), `is`(R.string.task_marked_complete))
+    }
+    
+    @Test
+    fun completeTask_taskIsActivated_repositoryCalledActivateTask() = runTest {
+        // Given
+        val task = Task(title = "Title", description = "Description")
+        coEvery { repository.activateTask(task) } just Runs
+        
+        // When
+        tasksViewModel.completeTask(task, completed = false)
+        
+        // Then
+        coVerify { repository.activateTask(task) }
+        coVerify(exactly = 0) { repository.completeTask(task) }
+        
+        val message = tasksViewModel.snackbarText.getOrAwaitValue()
+        assertThat(message.getContentIfNotHandled(), `is`(R.string.task_marked_active))
+    }
+}
+```
+
+**Key MockK functions for coroutines:**
+- `coEvery { ... } just Runs` - Mock a suspend function that returns nothing
+- `coVerify { ... }` - Verify a suspend function was called
+- `coVerify(exactly = 0) { ... }` - Verify a suspend function was NOT called
+
+---
+
+## Understanding Execution Order in Coroutines
+
+**Question:** In what order do coroutines execute?
+
+```kotlin
+fun refresh() {
+    _dataLoading.value = true          // Line 1
+    Log.i("Stats", "Before launch")    // Line 2
+    
+    viewModelScope.launch {
+        Log.i("Stats", "Inside launch")     // Line 3
+        tasksRepository.refreshTasks()      // Line 4
+        _dataLoading.value = false          // Line 5
+    }
+    
+    Log.i("Stats", "After launch")     // Line 6
+}
+```
+
+**Execution order (with viewModelScope on Main dispatcher):**
+
+```
+1. _dataLoading.value = true
+2. Log.i("Before launch")
+6. Log.i("After launch")    ← Launches job, doesn't wait
+3. Log.i("Inside launch")   ← Job executes asynchronously
+4. tasksRepository.refreshTasks()
+5. _dataLoading.value = false
+```
+
+**Console output:** `1, 2, 6, 3, 4, 5`
+
+**Why?** `viewModelScope.launch { }` doesn't block—it queues the job and immediately returns.
+
+### Test for refresh() with advanceUntilIdle()
+
+```kotlin
+@Test
+fun refresh_loadingIsUpdated() = runTest {
+    // Given
+    coEvery { repository.refreshTasks() } just Runs
+    
+    // When
+    tasksViewModel.refresh()
+    
+    // Then: loading starts immediately
+    assertThat(tasksViewModel.dataLoading.getOrAwaitValue(), `is`(true))
+    
+    // Execute all pending coroutine jobs
+    advanceUntilIdle()
+    
+    // Then: loading ends after refresh completes
+    assertThat(tasksViewModel.dataLoading.getOrAwaitValue(), `is`(false))
+}
+```
+
+---
+
+## Testing Room Database
+
+### Why Integration Tests for Room?
+
+Room is part of the Android framework. Testing DAO (Data Access Object) and LocalDataSource requires:
+- Real Room database (can't mock realistically)
+- Android environment (use in-memory database)
+- Actual database operations
+
+This is an **integration test**, not a unit test.
+
+### Setup: In-Memory Database for Tests
+
+```kotlin
+import android.app.Application
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.After
+import org.junit.Before
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)  // ← Integration test (needs Android)
+class TasksDaoTest {
+    
+    private lateinit var tasksDao: TasksDao
+    private lateinit var db: ToDoDatabase
+    
+    @Before
+    fun setup() {
+        // Get Android context from test environment
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        
+        // Create in-memory database (not persisted to disk)
+        db = Room.inMemoryDatabaseBuilder(
+            application,
+            ToDoDatabase::class.java
+        ).build()
+        
+        tasksDao = db.taskDao()
+    }
+    
+    @After
+    fun tearDown() {
+        // Close database after each test (clears all data)
+        db.close()
+    }
+}
+```
+
+**Why in-memory?** 
+- Fast: No disk I/O
+- Isolated: Each test gets a clean database
+- Clean: Data doesn't persist between tests
+
+---
+
+## Testing DAO (Data Access Object)
+
+```kotlin
+@Test
+fun insertTask_getTaskById() = runTest {
+    // Given: A task to insert
+    val task = Task(
+        id = "1",
+        title = "Buy groceries",
+        description = "Milk, eggs, bread",
+        isCompleted = false
+    )
+    
+    // When: Insert the task
+    tasksDao.insertTask(task)
+    
+    // Then: Can retrieve it by ID
+    val retrievedTask = tasksDao.getTaskById("1")
+    
+    assertThat(retrievedTask!!.id, `is`(task.id))
+    assertThat(retrievedTask.title, `is`(task.title))
+    assertThat(retrievedTask, `is`(task))
+}
+
+@Test
+fun deleteTask_taskNoLongerRetrievable() = runTest {
+    // Given: A task in the database
+    val task = Task(id = "1", title = "Task")
+    tasksDao.insertTask(task)
+    
+    // When: Delete it
+    tasksDao.deleteTaskById("1")
+    
+    // Then: Can't retrieve it
+    val retrieved = tasksDao.getTaskById("1")
+    assertThat(retrieved, nullValue())
+}
+
+@Test
+fun updateTask_taskReflectsChanges() = runTest {
+    // Given: A task in the database
+    val task = Task(id = "1", title = "Original")
+    tasksDao.insertTask(task)
+    
+    // When: Update it
+    val updated = task.copy(title = "Updated")
+    tasksDao.updateTask(updated)
+    
+    // Then: Changes are reflected
+    val retrieved = tasksDao.getTaskById("1")
+    assertThat(retrieved!!.title, `is`("Updated"))
+}
+```
+
+---
+
+## Testing LocalDataSource (Integration with DAO)
+
+```kotlin
+import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+
+@RunWith(AndroidJUnit4::class)
+class TasksLocalDataSourceTest {
+    
+    private lateinit var localDataSource: TasksLocalDataSource
+    private lateinit var tasksDao: TasksDao
+    private lateinit var db: ToDoDatabase
+    
+    @get:Rule
+    var instantExecutorRule = InstantTaskExecutorRule()
+    
+    @Before
+    fun setup() {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        db = Room.inMemoryDatabaseBuilder(
+            application,
+            ToDoDatabase::class.java
+        ).build()
+        
+        tasksDao = db.taskDao()
+        localDataSource = TasksLocalDataSource(tasksDao)
+    }
+    
+    @After
+    fun tearDown() {
+        db.close()
+    }
+    
+    @Test
+    fun saveTask_retrieveTask() = runTest {
+        // Given: A task to save
+        val task = Task(id = "1", title = "Test task", description = "Test")
+        
+        // When: Save via LocalDataSource
+        localDataSource.saveTask(task)
+        
+        // Then: Can retrieve via LocalDataSource
+        val result = localDataSource.getTask("1") as Result.Success
+        assertThat(result.data, `is`(task))
+    }
+    
+    @Test
+    fun deleteTask_taskNoLongerRetrievable() = runTest {
+        // Given: A saved task
+        val task = Task(id = "1", title = "Task")
+        localDataSource.saveTask(task)
+        
+        // When: Delete it
+        localDataSource.deleteTask("1")
+        
+        // Then: Can't retrieve it
+        val result = localDataSource.getTask("1")
+        assertThat(result, instanceOf(Result.Error::class.java))
+    }
+}
+```
+
+---
+
+### Integration vs. Unit Tests for Data Layer
+
+| Aspect | Unit Test (DAO Mocked) | Integration Test (Real DAO) |
+|--------|---------------------|---------------------------|
+| **Database** | Mocked with MockK | Real (in-memory) |
+| **Speed** | Very fast (milliseconds) | Slower (hundreds of ms) |
+| **What's tested** | LocalDataSource logic only | LocalDataSource + actual DAO |
+| **Setup complexity** | Simple | Requires Android context |
+| **Best for** | Quick feedback on logic | Verifying actual DB operations |
+
+**Rule of thumb:** Use integration tests for database operations. Mock the database for higher-level tests (ViewModel, Repository).
+
+---
+
+### Marking Integration Tests with @MediumTest
+
+```kotlin
+import androidx.test.filters.MediumTest
+
+@MediumTest
+@RunWith(AndroidJUnit4::class)
+class TasksLocalDataSourceTest {
+    // Integration test for database operations
+}
+```
+
+This annotation helps separate and filter tests:
+```bash
+# Run only unit tests
+./gradlew test
+
+# Run only integration tests
+./gradlew connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.size=medium
+```
 
 ---
 
@@ -953,7 +1456,7 @@ class DefaultTasksRepositoryTest {
 
 ---
 
-# PART IV: BEST PRACTICES & INTERVIEW QUESTIONS
+# PART V: BEST PRACTICES & INTERVIEW QUESTIONS
 
 ## Interview Questions & Answers
 
